@@ -202,12 +202,20 @@ function slugify(name){
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  const saved = localStorage.getItem('cp_username');
-  if(saved){ currentUser=saved; showLoading(); loadData(); }
-  else{ document.getElementById('login-screen').classList.remove('hidden'); }
-
   const inp = document.getElementById('login-input');
   inp.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+
+  const saved = localStorage.getItem('cp_username');
+  const display = localStorage.getItem('cp_displayname');
+  if(saved && saved.length > 0){
+    currentUser = saved;
+    document.getElementById('login-screen').classList.add('hidden');
+    showLoading();
+    loadData();
+  } else {
+    document.getElementById('login-screen').classList.remove('hidden');
+    inp.focus();
+  }
 });
 
 function doLogin(){
