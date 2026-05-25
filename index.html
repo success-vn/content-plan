@@ -183,7 +183,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <script>
-const API = 'https://script.google.com/macros/s/AKfycbymB66MdxhBa7fNoDO0rZ3bUzVhovXfVbPEk-PcXrqW_7yg8v1ZGaVU6twOTk7pY92evQ/exec';
+const API = 'https://script.google.com/macros/s/AKfycbwXDHX4XmUYVgbJ8_XuDCWO5l717xbqqepQmA1HPuI2mdSbz_I9HeUgqc13oBc0dvPdUg/exec';
 const PL={tiktok:'TikTok',facebook:'Facebook',youtube:'YouTube',other:'Khác'};
 const STAT_LABELS=['Ý tưởng','Đã viết kịch bản','Đã quay','Đã đăng'];
 const STAT_CLS=['s0','s1','s2','s3'];
@@ -252,20 +252,30 @@ function setSyncStatus(state){
 
 function userKey(k){ return currentUser + '_' + k; }
 
+function fetchJsonp(url){
+  return new Promise((resolve,reject)=>{
+    const cb='cb_'+Math.random().toString(36).slice(2);
+    const script=document.createElement('script');
+    const timer=setTimeout(()=>{reject(new Error('timeout'));delete window[cb];script.remove();},10000);
+    window[cb]=function(data){clearTimeout(timer);resolve(data);delete window[cb];script.remove();};
+    script.onerror=()=>{clearTimeout(timer);reject(new Error('error'));delete window[cb];script.remove();};
+    script.src=url+(url.includes('?')?'&':'?')+'callback='+cb;
+    document.head.appendChild(script);
+  });
+}
+
 async function loadData(){
   try{
-    const res = await fetch(API + '?key=' + encodeURIComponent(userKey('all')));
-    const json = await res.json();
+    const json=await fetchJsonp(API+'?key='+encodeURIComponent(userKey('all')));
     if(json.value){
-      const d = JSON.parse(json.value);
-      channels = d.channels || [];
-      days = d.days || [];
-      nextChId = d.nextChId || 1;
-      nextDayId = d.nextDayId || 1;
-      nextItemId = d.nextItemId || 1;
+      const d=JSON.parse(json.value);
+      channels=d.channels||[];
+      days=d.days||[];
+      nextChId=d.nextChId||1;
+      nextDayId=d.nextDayId||1;
+      nextItemId=d.nextItemId||1;
     }
-    // Người mới — tạo dữ liệu mặc định
-    if(days.length === 0){
+    if(days.length===0){
       channels=[
         {id:1,name:'TikTok chính',platform:'tiktok'},
         {id:2,name:'Facebook cá nhân',platform:'facebook'},
@@ -284,11 +294,11 @@ async function loadData(){
           {id:104,type:'post',subtype:'',hook:'',status:0,script:'',chIds:[],open:false},
         ]
       }];
-      nextDayId=2; nextItemId=200;
+      nextDayId=2;nextItemId=200;
       await saveData();
     }
     days.forEach(d=>d.items.forEach(i=>{if(!i.subtype)i.subtype='';}));
-  } catch(e){ setSyncStatus('err'); }
+  }catch(e){console.error(e);setSyncStatus('err');}
   hideLoading();
   setSyncStatus('ok');
   render();
@@ -296,14 +306,14 @@ async function loadData(){
 
 async function saveData(){
   setSyncStatus('saving');
-  const payload = { channels, days, nextChId, nextDayId, nextItemId };
+  const payload={channels,days,nextChId,nextDayId,nextItemId};
+  const val=encodeURIComponent(JSON.stringify(payload));
+  const key=encodeURIComponent(userKey('all'));
   try{
-    await fetch(API, {
-      method:'POST',
-      body: JSON.stringify({ key: userKey('all'), value: JSON.stringify(payload) })
-    });
-    setSyncStatus('ok');
-  } catch(e){ setSyncStatus('err'); }
+    const json=await fetchJsonp(API+'?action=set&key='+key+'&value='+val);
+    if(json&&json.ok) setSyncStatus('ok');
+    else setSyncStatus('err');
+  }catch(e){console.error(e);setSyncStatus('err');}
 }
 
 function scheduleSave(){
