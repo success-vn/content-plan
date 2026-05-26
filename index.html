@@ -236,12 +236,11 @@ window.addEventListener('DOMContentLoaded',()=>{
   const params=new URLSearchParams(window.location.search);
   const viewParam=params.get('view');
   if(viewParam){
-    const slug=slugify(viewParam);
-    viewingUser=slug;
-    // Hide login, go straight to loading
+    // Dùng thẳng viewParam đã decode từ URL, không slugify thêm
+    viewingUser=viewParam;
     document.getElementById('login-screen').classList.add('hidden');
     showLoading();
-    loadViewOnly(slug, viewParam);
+    loadViewOnly(viewParam, viewParam);
     return;
   }
 
@@ -337,24 +336,27 @@ async function saveData(){
 
 async function loadViewOnly(slug, displayName){
   try{
-    const res=await fetch(FB+'/users/'+slug+'.json');
+    // Decode URI component để lấy đúng key trên Firebase
+    const decodedSlug=decodeURIComponent(slug);
+    const res=await fetch(FB+'/users/'+encodeURIComponent(decodedSlug)+'.json');
     const d=await res.json();
     if(!d){
       hideLoading();
       document.getElementById('main-app').style.display='block';
       document.getElementById('view-mode-bar').style.display='flex';
       document.getElementById('view-mode-bar').querySelector('span').innerHTML='⚠️ Không tìm thấy dữ liệu của <b>'+displayName+'</b>';
+      renderAll();
       return;
     }
     channels=d.channels||[]; tabs=d.tabs||[];
     nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
     activeTabId=d.activeTabId||tabs[0]?.id||null;
+    if(!activeTabId||!tabs.find(t=>t.id===activeTabId)) activeTabId=tabs[0]?.id||null;
     tabs.forEach(t=>t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}));
   }catch(e){ console.error(e); }
   hideLoading();
   document.getElementById('view-mode-bar').style.display='flex';
   document.getElementById('view-mode-name').textContent=displayName;
-  document.getElementById('view-btn').style.display='none';
   document.getElementById('user-chip').style.display='none';
   const exitBtn=document.getElementById('view-mode-bar').querySelector('button');
   if(exitBtn) exitBtn.style.display='none';
