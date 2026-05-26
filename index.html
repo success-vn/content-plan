@@ -319,12 +319,11 @@ async function loadData(){
     }catch(e2){}
   }
   hideLoading();
-  if(tabs.length>0){
-    setSyncStatus('ok');
-    document.getElementById('restore-btn').style.display='none';
-  } else {
-    setSyncStatus('ok');
+  setSyncStatus('ok');
+  if(tabs.length===0||tabs.every(t=>t.items.length===0)){
     document.getElementById('restore-btn').style.display='';
+  } else {
+    document.getElementById('restore-btn').style.display='none';
   }
   renderAll();
 }
@@ -686,16 +685,11 @@ async function restoreOldData(){
   if(!confirm('Khôi phục dữ liệu từ tài khoản cũ về tài khoản hiện tại?')) return;
   setSyncStatus('saving');
   try{
-    // Thử các key cũ có thể có
-    const oldKeys=['huyên_hiêu_thương','huyền_hiếu_thương','huyên_hiêu_thương'];
-    let found=null;
-    for(const k of oldKeys){
-      const res=await fetch('https://content-plan-e204f-default-rtdb.asia-southeast1.firebasedatabase.app/users/'+encodeURIComponent(k)+'.json');
-      const d=await res.json();
-      if(d&&d.tabs&&d.tabs.length>0){ found=d; break; }
-    }
-    if(!found){ alert('Không tìm thấy dữ liệu cũ!'); setSyncStatus('ok'); return; }
-    // Copy sang key mới
+    // Key cũ chính xác trên Firebase
+    const oldKey='huyền_hiếu_thương';
+    const res=await fetch('https://content-plan-e204f-default-rtdb.asia-southeast1.firebasedatabase.app/users/'+encodeURIComponent(oldKey)+'.json');
+    const found=await res.json();
+    if(!found||!found.tabs||found.tabs.length===0){ alert('Không tìm thấy dữ liệu cũ!'); setSyncStatus('ok'); return; }
     channels=found.channels||[]; tabs=found.tabs||[];
     nextChId=found.nextChId||1; nextTabId=found.nextTabId||1; nextItemId=found.nextItemId||1;
     activeTabId=found.activeTabId||tabs[0]?.id||null;
