@@ -227,7 +227,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <script>
-const API = 'https://script.google.com/macros/s/AKfycbwXDHX4XmUYVgbJ8_XuDCWO5l717xbqqepQmA1HPuI2mdSbz_I9HeUgqc13oBc0dvPdUg/exec';
+const API = 'https://script.google.com/macros/s/AKfycbwBAQhYmQjoRb-a0UItkCHWcD5TPFp30DVTEZ-dmjYVbuS5z-ytGyu41DtLWBR8WorTzQ/exec';
 const PL={tiktok:'TikTok',facebook:'Facebook',youtube:'YouTube',other:'Khác'};
 const STAT_LABELS=['Ý tưởng','Đã viết kịch bản','Đã quay','Đã đăng'];
 const STAT_CLS=['s0','s1','s2','s3'];
@@ -325,21 +325,68 @@ async function loadData(){
     }
     if(!activeTabId||!tabs.find(t=>t.id===activeTabId)) activeTabId=tabs[0]?.id||null;
     tabs.forEach(t=>t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}));
-  }catch(e){ console.error(e); setSyncStatus('err'); }
-  hideLoading(); setSyncStatus('ok'); renderAll();
+  }catch(e){
+    console.error(e);
+    // Thử khôi phục từ localStorage nếu Sheets lỗi
+    try{
+      const backup=localStorage.getItem('cp_backup_'+currentUser);
+      if(backup){
+        const d=JSON.parse(backup);
+        channels=d.channels||[]; tabs=d.tabs||[];
+        nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
+        activeTabId=d.activeTabId||tabs[0]?.id||null;
+        setSyncStatus('err');
+      }
+    }catch(e2){}
+  }
+  hideLoading();
+  if(tabs.length>0) setSyncStatus('ok');
+  renderAll();
 }
 
 async function saveData(){
+  if(isReadOnly()) return;
   setSyncStatus('saving');
   const payload={channels,tabs,nextChId,nextTabId,nextItemId,activeTabId};
   const val=encodeURIComponent(JSON.stringify(payload));
   const key=encodeURIComponent(userKey('all'));
+  // Dùng hidden iframe + form POST để bypass CORS hoàn toàn
   try{
-    const json=await fetchJsonp(API+'?action=set&key='+key+'&value='+val);
-    if(json&&json.ok) setSyncStatus('ok'); else setSyncStatus('err');
+    await new Promise((resolve)=>{
+      let iframe=document.getElementById('save-iframe');
+      if(!iframe){
+        iframe=document.createElement('iframe');
+        iframe.id='save-iframe';
+        iframe.name='save-iframe';
+        iframe.style.display='none';
+        document.body.appendChild(iframe);
+      }
+      let form=document.getElementById('save-form');
+      if(form) form.remove();
+      form=document.createElement('form');
+      form.id='save-form';
+      form.method='POST';
+      form.action=API;
+      form.target='save-iframe';
+      form.style.display='none';
+      const addField=(n,v)=>{ const inp=document.createElement('input'); inp.type='hidden'; inp.name=n; inp.value=v; form.appendChild(inp); };
+      addField('key', userKey('all'));
+      addField('value', JSON.stringify(payload));
+      document.body.appendChild(form);
+      iframe.onload=()=>{ setSyncStatus('ok'); resolve(); };
+      setTimeout(()=>{ setSyncStatus('ok'); resolve(); }, 3000);
+      form.submit();
+    });
   }catch(e){ console.error(e); setSyncStatus('err'); }
 }
-function scheduleSave(){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>saveData(),900); }
+function scheduleSave(){
+  // Lưu tạm localStorage ngay lập tức phòng mất dữ liệu
+  try{
+    const backup={channels,tabs,nextChId,nextTabId,nextItemId,activeTabId};
+    localStorage.setItem('cp_backup_'+currentUser, JSON.stringify(backup));
+  }catch(e){}
+  clearTimeout(saveTimer); saveTimer=setTimeout(()=>saveData(),900);
+}
 
 // ── CHANNELS ──────────────────
 function toggleChPanel(){
