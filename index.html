@@ -127,8 +127,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .detail-footer{display:flex;justify-content:flex-end;margin-top:8px}
 .add-item-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px;font-size:13px;color:#aaa;border:none;background:transparent;cursor:pointer;font-family:inherit;width:100%;border-top:1px solid #f0f0ee}
 .add-item-btn:hover{background:#f9f9f7;color:#333}
+.item-num{font-size:12px;color:#ccc;font-weight:500;flex-shrink:0;width:22px;text-align:right;user-select:none}
 .copy-btn{background:transparent;border:none;cursor:pointer;color:#bbb;padding:3px 6px;font-size:14px;line-height:1;flex-shrink:0;border-radius:5px;font-family:inherit}
 .copy-btn:hover{color:#555;background:#f0f0ee}
+.ch-inline-btn{padding:7px 13px;font-size:13px;font-weight:500;border:none;border-bottom:2px solid transparent;background:transparent;color:#888;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0}
+.ch-inline-btn:hover{color:#1a1a1a;background:#f9f9f7}
+.ch-inline-btn.active{color:#185FA5;border-bottom-color:#185FA5}
 .empty-tab{padding:32px;text-align:center;color:#bbb;font-size:13px}
 
 @media(max-width:600px){
@@ -164,7 +168,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="top-actions">
       <span class="sync-status sync-ok" id="sync-status">✓ Đã lưu</span>
       <span class="user-chip" id="user-chip" onclick="changeUser()">👤</span>
-      <button class="btn" onclick="toggleChPanel()">📡 Quản lý kênh</button>
+
     </div>
   </div>
 
@@ -181,10 +185,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <!-- Stats -->
   <div id="stats-bar" class="stats-bar"></div>
 
-  <!-- Tabs -->
-  <div style="display:flex;align-items:center;margin-bottom:0">
+  <!-- Tabs + channel button inline -->
+  <div style="display:flex;align-items:center;margin-bottom:0;gap:0">
     <div class="tabs-wrap" id="tabs-wrap"></div>
     <button class="add-tab-btn" onclick="addTab()" title="Thêm tab mới">＋ Tab</button>
+    <div style="flex:1"></div>
+    <button class="ch-inline-btn" id="ch-inline-btn" onclick="toggleChPanel()">📡 Kênh</button>
   </div>
 
   <!-- Tab content -->
@@ -295,6 +301,8 @@ function scheduleSave(){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>saveD
 function toggleChPanel(){
   chPanelOpen=!chPanelOpen;
   document.getElementById('ch-panel').style.display=chPanelOpen?'block':'none';
+  const btn=document.getElementById('ch-inline-btn');
+  if(btn) btn.classList.toggle('active',chPanelOpen);
   if(chPanelOpen) buildChPanel();
 }
 function buildChPanel(){
@@ -367,10 +375,11 @@ function renderTabContent(){
   // Item list
   const list=document.createElement('div'); list.className='item-list';
 
-  tab.items.forEach(item=>{
+  tab.items.forEach((item,idx)=>{
     // Row
     const row=document.createElement('div'); row.className='item-row';
 
+    const numEl=document.createElement('span'); numEl.className='item-num'; numEl.textContent=(idx+1)+'.';
     const hookInp=document.createElement('input'); hookInp.className='item-hook'; hookInp.type='text'; hookInp.placeholder='Nhập câu hook / tiêu đề...'; hookInp.value=item.hook;
     hookInp.addEventListener('input',function(){ item.hook=this.value; scheduleSave(); });
 
@@ -387,7 +396,7 @@ function renderTabContent(){
 
     const copyHookBtn=document.createElement('button'); copyHookBtn.className='copy-btn'; copyHookBtn.title='Copy hook'; copyHookBtn.textContent='⎘';
     copyHookBtn.addEventListener('click',()=>{ navigator.clipboard.writeText(item.hook||'').then(()=>{ copyHookBtn.textContent='✓'; setTimeout(()=>copyHookBtn.textContent='⎘',1200); }); });
-    row.appendChild(hookInp); row.appendChild(copyHookBtn); row.appendChild(tagsDiv); row.appendChild(sp); row.appendChild(expBtn);
+    row.appendChild(numEl); row.appendChild(hookInp); row.appendChild(copyHookBtn); row.appendChild(tagsDiv); row.appendChild(sp); row.appendChild(expBtn);
     list.appendChild(row);
 
     // Detail
