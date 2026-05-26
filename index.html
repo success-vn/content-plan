@@ -178,6 +178,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="top-actions">
       <span class="sync-status sync-ok" id="sync-status">✓ Đã lưu</span>
       <span class="user-chip" id="user-chip" onclick="changeUser()">👤</span>
+      <button class="btn" id="restore-btn" onclick="restoreOldData()" style="display:none;color:#854F0B;border-color:#FAC775;background:#FAEEDA">⚠️ Khôi phục dữ liệu cũ</button>
       <button class="btn" id="share-btn" onclick="copyShareLink()" title="Copy link share cho người khác">🔗 Copy link share</button>
 
 
@@ -318,7 +319,13 @@ async function loadData(){
     }catch(e2){}
   }
   hideLoading();
-  if(tabs.length>0) setSyncStatus('ok');
+  if(tabs.length>0){
+    setSyncStatus('ok');
+    document.getElementById('restore-btn').style.display='none';
+  } else {
+    setSyncStatus('ok');
+    document.getElementById('restore-btn').style.display='';
+  }
   renderAll();
 }
 
@@ -673,6 +680,31 @@ function copyShareLink(){
     btn.textContent='✓ Đã copy link!';
     setTimeout(()=>btn.textContent='🔗 Copy link share',1800);
   });
+}
+
+async function restoreOldData(){
+  if(!confirm('Khôi phục dữ liệu từ tài khoản cũ về tài khoản hiện tại?')) return;
+  setSyncStatus('saving');
+  try{
+    // Thử các key cũ có thể có
+    const oldKeys=['huyên_hiêu_thương','huyền_hiếu_thương','huyên_hiêu_thương'];
+    let found=null;
+    for(const k of oldKeys){
+      const res=await fetch('https://content-plan-e204f-default-rtdb.asia-southeast1.firebasedatabase.app/users/'+encodeURIComponent(k)+'.json');
+      const d=await res.json();
+      if(d&&d.tabs&&d.tabs.length>0){ found=d; break; }
+    }
+    if(!found){ alert('Không tìm thấy dữ liệu cũ!'); setSyncStatus('ok'); return; }
+    // Copy sang key mới
+    channels=found.channels||[]; tabs=found.tabs||[];
+    nextChId=found.nextChId||1; nextTabId=found.nextTabId||1; nextItemId=found.nextItemId||1;
+    activeTabId=found.activeTabId||tabs[0]?.id||null;
+    tabs.forEach(t=>t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}));
+    await saveData();
+    document.getElementById('restore-btn').style.display='none';
+    alert('Đã khôi phục thành công ' + tabs.length + ' tab!');
+    renderAll();
+  }catch(e){ console.error(e); setSyncStatus('err'); alert('Lỗi: '+e.message); }
 }
 
 function renderAll(){ renderStats(); renderTabs(); renderTabContent(); }
