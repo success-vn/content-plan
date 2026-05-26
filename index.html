@@ -179,7 +179,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="sync-status sync-ok" id="sync-status">✓ Đã lưu</span>
       <span class="user-chip" id="user-chip" onclick="changeUser()">👤</span>
       <button class="btn" id="share-btn" onclick="copyShareLink()" title="Copy link share cho người khác">🔗 Copy link share</button>
-      <button class="btn" id="view-btn" onclick="toggleViewPanel()" title="Xem dữ liệu của người khác">👁 Xem của người khác</button>
+
 
     </div>
   </div>
@@ -198,17 +198,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div id="view-mode-bar" class="view-mode-bar" style="display:none">
     <span id="view-mode-label">👁 Đang xem dữ liệu của: <b id="view-mode-name"></b></span>
     <button class="btn" onclick="exitViewMode()">✕ Thoát — về dữ liệu của tôi</button>
-  </div>
-
-  <!-- View other user panel -->
-  <div id="view-panel" style="display:none" class="view-panel">
-    <h3>👁 Xem dữ liệu của người khác</h3>
-    <div class="view-input-row">
-      <input class="view-input" id="view-input" type="text" placeholder="Nhập tên tài khoản cần xem..." maxlength="40"/>
-      <button class="btn btn-primary" onclick="doViewUser()">Xem →</button>
-      <button class="btn" onclick="toggleViewPanel()">Đóng</button>
-    </div>
-    <div style="font-size:12px;color:#aaa;margin-top:8px">Nhập đúng tên tài khoản (nickname) của người đó, sau đó nhấn Xem.</div>
   </div>
 
   <!-- Stats -->
@@ -238,7 +227,7 @@ let activeTabId=null, chPanelOpen=false, viewPanelOpen=false, saveTimer=null;
 let viewingUser=null; // null = viewing own data
 
 // ── LOGIN ──────────────────────
-function slugify(n){ return n.trim().toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'').substring(0,30)||'user'; }
+function slugify(n){ return n.trim().toLowerCase().replace(/\s+/g,'_').substring(0,40)||'user'; }
 
 window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('login-input').addEventListener('keydown',e=>{ if(e.key==='Enter') doLogin(); });
@@ -267,6 +256,7 @@ function doLogin(){
   currentUser=slugify(val);
   localStorage.setItem('cp_username',currentUser);
   localStorage.setItem('cp_displayname',val.trim());
+  console.log('Logged in as key:', currentUser);
   document.getElementById('login-screen').classList.add('hidden');
   showLoading(); loadData();
 }
