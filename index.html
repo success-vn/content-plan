@@ -282,7 +282,9 @@ function hideLoading(){
   document.getElementById('user-chip').textContent='👤 '+dn;
 }
 
-// ── SYNC ──────────────────────
+// ── SYNC (Firebase Realtime Database) ─────────────
+const FB = 'https://content-plan-e204f-default-rtdb.asia-southeast1.firebasedatabase.app';
+
 function setSyncStatus(s){
   const el=document.getElementById('sync-status');
   el.className='sync-status';
@@ -292,30 +294,19 @@ function setSyncStatus(s){
 }
 function userKey(k){ return currentUser+'_'+k; }
 
-function fetchJsonp(url){
-  return new Promise((resolve,reject)=>{
-    const cb='cb_'+Math.random().toString(36).slice(2);
-    const script=document.createElement('script');
-    const timer=setTimeout(()=>{reject(new Error('timeout'));delete window[cb];script.remove();},12000);
-    window[cb]=function(data){clearTimeout(timer);resolve(data);delete window[cb];script.remove();};
-    script.onerror=()=>{clearTimeout(timer);reject(new Error('err'));delete window[cb];script.remove();};
-    script.src=url+(url.includes('?')?'&':'?')+'callback='+cb;
-    document.head.appendChild(script);
-  });
-}
-
 async function loadData(){
   try{
-    const json=await fetchJsonp(API+'?key='+encodeURIComponent(userKey('all')));
-    if(json.value){
-      const d=JSON.parse(json.value);
+    const res=await fetch(FB+'/users/'+currentUser+'.json');
+    const d=await res.json();
+    if(d){
       channels=d.channels||[]; tabs=d.tabs||[];
       nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
       activeTabId=d.activeTabId||null;
     }
-    if(tabs.length===0){
+    if(!d||tabs.length===0){
       channels=[{id:1,name:'TikTok chính',platform:'tiktok'},{id:2,name:'Facebook cá nhân',platform:'facebook'},{id:3,name:'YouTube chính',platform:'youtube'}];
       nextChId=4;
+      const t=new Date();
       tabs=[
         {id:1,name:'Video Text Overlay',items:[{id:101,hook:'',status:0,script:'',chIds:[],open:false}]},
         {id:2,name:'Bài viết',items:[{id:102,hook:'',status:0,script:'',chIds:[],open:false}]},
@@ -326,17 +317,11 @@ async function loadData(){
     if(!activeTabId||!tabs.find(t=>t.id===activeTabId)) activeTabId=tabs[0]?.id||null;
     tabs.forEach(t=>t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}));
   }catch(e){
-    console.error(e);
-    // Thử khôi phục từ localStorage nếu Sheets lỗi
+    console.error(e); setSyncStatus('err');
+    // Khôi phục từ localStorage nếu Firebase lỗi
     try{
       const backup=localStorage.getItem('cp_backup_'+currentUser);
-      if(backup){
-        const d=JSON.parse(backup);
-        channels=d.channels||[]; tabs=d.tabs||[];
-        nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
-        activeTabId=d.activeTabId||tabs[0]?.id||null;
-        setSyncStatus('err');
-      }
+      if(backup){ const d=JSON.parse(backup); channels=d.channels||[]; tabs=d.tabs||[]; nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1; activeTabId=d.activeTabId||null; }
     }catch(e2){}
   }
   hideLoading();
@@ -348,37 +333,66 @@ async function saveData(){
   if(isReadOnly()) return;
   setSyncStatus('saving');
   const payload={channels,tabs,nextChId,nextTabId,nextItemId,activeTabId};
-  const val=encodeURIComponent(JSON.stringify(payload));
-  const key=encodeURIComponent(userKey('all'));
-  // Dùng hidden iframe + form POST để bypass CORS hoàn toàn
+  // Backup localStorage ngay
+  try{ localStorage.setItem('cp_backup_'+currentUser, JSON.stringify(payload)); }catch(e){}
   try{
-    await new Promise((resolve)=>{
-      let iframe=document.getElementById('save-iframe');
-      if(!iframe){
-        iframe=document.createElement('iframe');
-        iframe.id='save-iframe';
-        iframe.name='save-iframe';
-        iframe.style.display='none';
-        document.body.appendChild(iframe);
-      }
-      let form=document.getElementById('save-form');
-      if(form) form.remove();
-      form=document.createElement('form');
-      form.id='save-form';
-      form.method='POST';
-      form.action=API;
-      form.target='save-iframe';
-      form.style.display='none';
-      const addField=(n,v)=>{ const inp=document.createElement('input'); inp.type='hidden'; inp.name=n; inp.value=v; form.appendChild(inp); };
-      addField('key', userKey('all'));
-      addField('value', JSON.stringify(payload));
-      document.body.appendChild(form);
-      iframe.onload=()=>{ setSyncStatus('ok'); resolve(); };
-      setTimeout(()=>{ setSyncStatus('ok'); resolve(); }, 3000);
-      form.submit();
+    const res=await fetch(FB+'/users/'+currentUser+'.json',{
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
     });
+    if(res.ok) setSyncStatus('ok'); else setSyncStatus('err');
   }catch(e){ console.error(e); setSyncStatus('err'); }
 }
+
+async function loadViewOnly(slug, displayName){
+  try{
+    const res=await fetch(FB+'/users/'+slug+'.json');
+    const d=await res.json();
+    if(!d){
+      hideLoading();
+      document.getElementById('main-app').style.display='block';
+      document.getElementById('view-mode-bar').style.display='flex';
+      document.getElementById('view-mode-bar').querySelector('span').innerHTML='⚠️ Không tìm thấy dữ liệu của <b>'+displayName+'</b>';
+      return;
+    }
+    channels=d.channels||[]; tabs=d.tabs||[];
+    nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
+    activeTabId=d.activeTabId||tabs[0]?.id||null;
+    tabs.forEach(t=>t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}));
+  }catch(e){ console.error(e); }
+  hideLoading();
+  document.getElementById('view-mode-bar').style.display='flex';
+  document.getElementById('view-mode-name').textContent=displayName;
+  document.getElementById('view-btn').style.display='none';
+  document.getElementById('user-chip').style.display='none';
+  const exitBtn=document.getElementById('view-mode-bar').querySelector('button');
+  if(exitBtn) exitBtn.style.display='none';
+  renderAll();
+}
+
+async function exitViewMode(){
+  viewingUser=null;
+  document.getElementById('view-mode-bar').style.display='none';
+  document.getElementById('view-btn').style.display='';
+  document.getElementById('user-chip').style.display='';
+  document.getElementById('view-input').value='';
+  showLoading();
+  await loadData();
+}
+
+async function doViewUser(){
+  const val=document.getElementById('view-input').value.trim();
+  if(!val) return;
+  const slug=slugify(val);
+  if(slug===currentUser){ alert('Đó là tài khoản của bạn!'); return; }
+  document.getElementById('view-panel').style.display='none';
+  viewPanelOpen=false;
+  viewingUser=slug;
+  showLoading();
+  await loadViewOnly(slug, val);
+}
+
 function scheduleSave(){
   // Lưu tạm localStorage ngay lập tức phòng mất dữ liệu
   try{
@@ -615,9 +629,19 @@ function isReadOnly(){ return viewingUser!==null; }
 
 async function loadViewOnly(slug, displayName){
   try{
-    const json=await fetchJsonp(API+'?key='+encodeURIComponent(slug+'_all'));
-    if(!json.value){ hideLoading(); document.getElementById('main-app').style.display='block'; document.getElementById('view-mode-bar').style.display='flex'; document.getElementById('view-mode-name').textContent=displayName; document.getElementById('view-mode-bar').querySelector('span').innerHTML='⚠️ Không tìm thấy dữ liệu của <b>'+displayName+'</b>'; return; }
-    const d=JSON.parse(json.value);
+    const vkey=slug+'_all';
+    const nRes2=await fetchJsonp(API+'?key='+encodeURIComponent(vkey+'__n'));
+    let vraw=null;
+    if(nRes2.value && parseInt(nRes2.value)>0){
+      const n=parseInt(nRes2.value); let parts=[];
+      for(let i=0;i<n;i++){ const r=await fetchJsonp(API+'?key='+encodeURIComponent(vkey+'__'+i)); parts.push(r.value||''); }
+      vraw=parts.join('');
+    } else {
+      const fb=await fetchJsonp(API+'?key='+encodeURIComponent(vkey));
+      if(fb.value) vraw=fb.value;
+    }
+    if(!vraw){ hideLoading(); document.getElementById('main-app').style.display='block'; document.getElementById('view-mode-bar').style.display='flex'; document.getElementById('view-mode-name').textContent=displayName; document.getElementById('view-mode-bar').querySelector('span').innerHTML='⚠️ Không tìm thấy dữ liệu của <b>'+displayName+'</b>'; return; }
+    const d=JSON.parse(vraw);
     channels=d.channels||[]; tabs=d.tabs||[];
     nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
     activeTabId=d.activeTabId||tabs[0]?.id||null;
