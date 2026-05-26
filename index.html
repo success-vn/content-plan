@@ -241,7 +241,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   const params=new URLSearchParams(window.location.search);
   const viewParam=params.get('view');
   if(viewParam){
-    // Dùng thẳng viewParam đã decode từ URL, không slugify thêm
+    // viewParam từ URL đã được browser decode tự động
     viewingUser=viewParam;
     document.getElementById('login-screen').classList.add('hidden');
     showLoading();
@@ -346,9 +346,8 @@ async function saveData(){
 
 async function loadViewOnly(slug, displayName){
   try{
-    // Decode URI component để lấy đúng key trên Firebase
-    const decodedSlug=decodeURIComponent(slug);
-    const res=await fetch(FB+'/users/'+encodeURIComponent(decodedSlug)+'.json');
+    // Dùng thẳng slug không encode thêm
+    const res=await fetch(FB+'/users/'+slug+'.json');
     const d=await res.json();
     if(!d){
       hideLoading();
