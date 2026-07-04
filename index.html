@@ -186,9 +186,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="user-chip" id="user-chip" onclick="changeUser()">👤</span>
       <button class="btn" id="restore-btn" onclick="restoreOldData()" style="display:none;color:#854F0B;border-color:#FAC775;background:#FAEEDA">⚠️ Khôi phục dữ liệu cũ</button>
       <button class="btn" id="share-btn" onclick="copyShareLink()" title="Copy link share cho người khác">🔗 Copy link share</button>
-      <button class="btn" id="code-btn" onclick="copyAccountCode()" title="Copy mã tài khoản chính xác để người khác vào chung">🔑 Copy mã tài khoản</button>
+      <button class="btn" onclick="toggleCodePanel()">🔑 Mã tài khoản</button>
 
 
+    </div>
+  </div>
+
+  <!-- Account code panel -->
+  <div id="code-panel" style="display:none" class="panel">
+    <div class="panel-header">
+      <span class="panel-title">🔑 Mã tài khoản của bạn</span>
+      <button class="btn" style="padding:4px 10px;font-size:12px" onclick="toggleCodePanel()">✕ Đóng</button>
+    </div>
+    <p style="font-size:12px;color:#888;margin-bottom:10px;line-height:1.5">Gửi CHÍNH XÁC đoạn mã trong ô dưới đây cho người muốn vào chung tài khoản này. Đừng gõ lại — chỉ copy-paste.</p>
+    <div style="display:flex;gap:8px">
+      <input class="login-input" id="code-display" readonly style="margin-bottom:0;text-align:left;font-family:monospace" onclick="this.select()"/>
+      <button class="btn btn-primary" style="flex-shrink:0" onclick="copyAccountCode()">Copy</button>
     </div>
   </div>
 
@@ -271,21 +284,32 @@ function doLogin(){
   showLoading(); loadData();
 }
 function doLoginWithCode(){
-  const val=document.getElementById('login-code-input').value.trim();
+  let val=document.getElementById('login-code-input').value.trim();
   if(!val) return;
-  // Dùng chính xác mã được dán, KHÔNG slugify lại — đảm bảo khớp 100% với người đã chia sẻ mã này
+  // Phòng trường hợp người dùng lỡ copy luôn nhãn xác nhận thay vì chỉ mã (vd "Đã copy: ten_ma")
+  if(val.includes(':')) val=val.split(':').pop().trim();
+  val=val.replace(/[✓🔑"'“”]/g,'').trim();
+  // Dùng chính xác mã sau khi làm sạch, KHÔNG slugify lại — đảm bảo khớp 100% với người đã chia sẻ mã này
   currentUser=val;
   localStorage.setItem('cp_username',currentUser);
   localStorage.setItem('cp_displayname',val);
   document.getElementById('login-screen').classList.add('hidden');
   showLoading(); loadData();
 }
+function toggleCodePanel(){
+  const panel=document.getElementById('code-panel');
+  const showing=panel.style.display==='block';
+  panel.style.display=showing?'none':'block';
+  if(!showing){
+    document.getElementById('code-display').value=currentUser;
+  }
+}
 function copyAccountCode(){
+  const input=document.getElementById('code-display');
+  input.select();
   navigator.clipboard.writeText(currentUser).then(()=>{
-    const btn=document.getElementById('code-btn');
-    const old=btn.textContent;
-    btn.textContent='✓ Đã copy: '+currentUser;
-    setTimeout(()=>btn.textContent=old,2500);
+    input.style.borderColor='#3B6D11';
+    setTimeout(()=>input.style.borderColor='',1500);
   });
 }
 function changeUser(){
@@ -313,6 +337,7 @@ function setSyncStatus(s){
 function userKey(k){ return currentUser+'_'+k; }
 
 async function loadData(){
+  let loadFailed=false;
   try{
     const res=await fetch(FB+'/users/'+currentUser+'.json');
     const d=await res.json();
@@ -333,9 +358,10 @@ async function loadData(){
       await saveData();
     }
     if(!activeTabId||!tabs.find(t=>t.id===activeTabId)) activeTabId=tabs[0]?.id||null;
-    tabs.forEach(t=>t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}));
+    tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}); });
   }catch(e){
-    console.error(e); setSyncStatus('err');
+    console.error('Lỗi tải dữ liệu:',e);
+    loadFailed=true;
     // Khôi phục từ localStorage nếu Firebase lỗi
     try{
       const backup=localStorage.getItem('cp_backup_'+currentUser);
@@ -343,8 +369,13 @@ async function loadData(){
     }catch(e2){}
   }
   hideLoading();
-  setSyncStatus('ok');
-  if(tabs.length===0||tabs.every(t=>t.items.length===0)){
+  if(loadFailed){
+    setSyncStatus('err');
+    alert('⚠️ Không tải được dữ liệu từ máy chủ.\n\nCó thể do:\n- Mất kết nối mạng\n- Trình duyệt/tiện ích mở rộng đang chặn kết nối tới Firebase\n- Tường lửa mạng đang chặn\n\nHãy thử: tắt tiện ích chặn quảng cáo/VPN, đổi mạng, hoặc thử trình duyệt khác, rồi tải lại trang (F5).');
+  } else {
+    setSyncStatus('ok');
+  }
+  if(tabs.length===0||tabs.every(t=>!t.items||t.items.length===0)){
     document.getElementById('restore-btn').style.display='';
   } else {
     document.getElementById('restore-btn').style.display='none';
@@ -385,7 +416,7 @@ async function loadViewOnly(slug, displayName){
     nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
     activeTabId=d.activeTabId||tabs[0]?.id||null;
     if(!activeTabId||!tabs.find(t=>t.id===activeTabId)) activeTabId=tabs[0]?.id||null;
-    tabs.forEach(t=>t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}));
+    tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}); });
   }catch(e){ console.error(e); }
   hideLoading();
   document.getElementById('view-mode-bar').style.display='flex';
@@ -446,7 +477,7 @@ function buildChPanel(){
     const inp=document.createElement('input'); inp.className='ch-name-field'; inp.type='text'; inp.placeholder='Tên kênh...'; inp.value=ch.name;
     inp.addEventListener('input',function(){ ch.name=this.value; renderTabContent(); scheduleSave(); });
     const db=document.createElement('button'); db.className='del-btn'; db.innerHTML='✕';
-    db.addEventListener('click',()=>{ if(!confirm('Xóa kênh?'))return; channels=channels.filter(c=>c.id!==ch.id); tabs.forEach(t=>t.items.forEach(i=>{i.chIds=i.chIds.filter(x=>x!==ch.id);})); buildChPanel(); renderTabContent(); scheduleSave(); });
+    db.addEventListener('click',()=>{ if(!confirm('Xóa kênh?'))return; channels=channels.filter(c=>c.id!==ch.id); tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{i.chIds=i.chIds.filter(x=>x!==ch.id);}); }); buildChPanel(); renderTabContent(); scheduleSave(); });
     row.appendChild(sel); row.appendChild(inp); row.appendChild(db); list.appendChild(row);
   });
 }
@@ -508,6 +539,7 @@ function renderTabContent(){
   // Item list
   const list=document.createElement('div'); list.className='item-list';
 
+  if(!tab.items) tab.items=[];
   tab.items.forEach((item,idx)=>{
     // Row
     const row=document.createElement('div'); row.className='item-row';
@@ -602,7 +634,7 @@ function renderTabContent(){
 
 function renderStats(){
   let tot=0,s1=0,s2=0,s3=0;
-  tabs.forEach(t=>t.items.forEach(i=>{ tot++; if(i.status>=1)s1++; if(i.status>=2)s2++; if(i.status>=3)s3++; }));
+  tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{ tot++; if(i.status>=1)s1++; if(i.status>=2)s2++; if(i.status>=3)s3++; }); });
   document.getElementById('stats-bar').innerHTML=
     '<span class="stat-chip">Tổng: <span class="stat-num">'+tot+'</span></span>'+
     '<span class="stat-chip">Đã viết: <span class="stat-num">'+s1+'</span></span>'+
@@ -632,7 +664,7 @@ async function doViewUser(){
     // Load their data into view
     channels=d.channels||[]; tabs=d.tabs||[]; nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
     activeTabId=d.activeTabId||tabs[0]?.id||null;
-    tabs.forEach(t=>t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}));
+    tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}); });
     viewingUser=slug;
     document.getElementById('view-mode-bar').style.display='flex';
     document.getElementById('view-mode-name').textContent=val;
@@ -670,7 +702,7 @@ async function loadViewOnly(slug, displayName){
     channels=d.channels||[]; tabs=d.tabs||[];
     nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
     activeTabId=d.activeTabId||tabs[0]?.id||null;
-    tabs.forEach(t=>t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}));
+    tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}); });
   }catch(e){ console.error(e); }
   hideLoading();
   // Show view mode bar, hide edit buttons
@@ -716,7 +748,7 @@ async function restoreOldData(){
     channels=found.channels||[]; tabs=found.tabs||[];
     nextChId=found.nextChId||1; nextTabId=found.nextTabId||1; nextItemId=found.nextItemId||1;
     activeTabId=found.activeTabId||tabs[0]?.id||null;
-    tabs.forEach(t=>t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}));
+    tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}); });
     await saveData();
     document.getElementById('restore-btn').style.display='none';
     alert('Đã khôi phục thành công ' + tabs.length + ' tab!');
