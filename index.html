@@ -162,6 +162,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <p>Nhập tên hoặc nickname để vào.<br>Mỗi người có dữ liệu riêng.</p>
     <input class="login-input" id="login-input" type="text" placeholder="Tên của bạn..." maxlength="40"/>
     <button class="login-btn" onclick="doLogin()">Vào app →</button>
+
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee">
+      <p style="font-size:12px;color:#aaa;margin-bottom:8px;line-height:1.5">Được người khác chia sẻ mã tài khoản để cùng vào chung? Dán chính xác mã vào đây (không gõ lại tên):</p>
+      <input class="login-input" id="login-code-input" type="text" placeholder="Dán mã tài khoản vào đây..."/>
+      <button class="login-btn" style="background:#fff;color:#1a1a1a;border:1px solid #d4d4d0" onclick="doLoginWithCode()">Vào bằng mã tài khoản →</button>
+    </div>
   </div>
 </div>
 
@@ -180,6 +186,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="user-chip" id="user-chip" onclick="changeUser()">👤</span>
       <button class="btn" id="restore-btn" onclick="restoreOldData()" style="display:none;color:#854F0B;border-color:#FAC775;background:#FAEEDA">⚠️ Khôi phục dữ liệu cũ</button>
       <button class="btn" id="share-btn" onclick="copyShareLink()" title="Copy link share cho người khác">🔗 Copy link share</button>
+      <button class="btn" id="code-btn" onclick="copyAccountCode()" title="Copy mã tài khoản chính xác để người khác vào chung">🔑 Copy mã tài khoản</button>
 
 
     </div>
@@ -229,8 +236,7 @@ let viewingUser=null; // null = viewing own data
 
 // ── LOGIN ──────────────────────
 function removeDiacritics(str){
-  const map={'à':'a','á':'a','ả':'a','ã':'a','ạ':'a','ă':'a','ặ':'a','ắ':'a','ằ':'a','ẳ':'a','ẵ':'a','â':'a','ầ':'a','ấ':'a','ẩ':'a','ẫ':'a','ậ':'a','đ':'d','è':'e','é':'e','ẻ':'e','ẽ':'e','ẹ':'e','ê':'e','ề':'e','ế':'e','ể':'e','ễ':'e','ệ':'e','ì':'i','í':'i','ỉ':'i','ĩ':'i','ị':'i','ò':'o','ó':'o','ỏ':'o','õ':'o','ọ':'o','ô':'o','ồ':'o','ố':'o','ổ':'o','ỗ':'o','ộ':'o','ơ':'o','ờ':'o','ớ':'o','ở':'o','ỡ':'o','ợ':'o','ù':'u','ú':'u','ủ':'u','ũ':'u','ụ':'u','ư':'u','ừ':'u','ứ':'u','ử':'u','ữ':'u','ự':'u','ỳ':'y','ý':'y','ỷ':'y','ỹ':'y','ỵ':'y'};
-  return str.split('').map(c=>map[c]||map[c.toLowerCase()]||c).join('');
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D');
 }
 function slugify(n){ return removeDiacritics(n.trim().toLowerCase()).replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'').substring(0,40)||'user'; }
 
@@ -263,6 +269,24 @@ function doLogin(){
   console.log('Logged in as key:', currentUser);
   document.getElementById('login-screen').classList.add('hidden');
   showLoading(); loadData();
+}
+function doLoginWithCode(){
+  const val=document.getElementById('login-code-input').value.trim();
+  if(!val) return;
+  // Dùng chính xác mã được dán, KHÔNG slugify lại — đảm bảo khớp 100% với người đã chia sẻ mã này
+  currentUser=val;
+  localStorage.setItem('cp_username',currentUser);
+  localStorage.setItem('cp_displayname',val);
+  document.getElementById('login-screen').classList.add('hidden');
+  showLoading(); loadData();
+}
+function copyAccountCode(){
+  navigator.clipboard.writeText(currentUser).then(()=>{
+    const btn=document.getElementById('code-btn');
+    const old=btn.textContent;
+    btn.textContent='✓ Đã copy: '+currentUser;
+    setTimeout(()=>btn.textContent=old,2500);
+  });
 }
 function changeUser(){
   if(!confirm('Đổi tài khoản?')) return;
