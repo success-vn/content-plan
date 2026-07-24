@@ -145,6 +145,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .item-hook[readonly]{cursor:default;color:#555}
 .empty-tab{padding:32px;text-align:center;color:#bbb;font-size:13px}
 
+/* BACKUP HISTORY PANEL */
+.backup-list{display:flex;flex-direction:column;gap:7px;max-height:360px;overflow-y:auto}
+.backup-row{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#f9f9f7;border:1px solid #e5e5e0;border-radius:8px;padding:9px 12px}
+.backup-date{font-size:13px;font-weight:600}
+.backup-meta{font-size:11px;color:#999;margin-top:2px}
+.backup-empty{font-size:13px;color:#aaa;padding:12px 0;font-style:italic;text-align:center}
+
 @media(max-width:600px){
   .app{padding:12px 8px}
   .detail-grid{grid-template-columns:1fr}
@@ -187,8 +194,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <button class="btn" id="restore-btn" onclick="restoreOldData()" style="display:none;color:#854F0B;border-color:#FAC775;background:#FAEEDA">⚠️ Khôi phục dữ liệu cũ</button>
       <button class="btn" id="share-btn" onclick="copyShareLink()" title="Copy link share cho người khác">🔗 Copy link share</button>
       <button class="btn" onclick="toggleCodePanel()">🔑 Mã tài khoản</button>
-
-
+      <button class="btn" onclick="toggleBackupPanel()" title="Xem và khôi phục các bản sao lưu theo ngày">🕐 Sao lưu</button>
     </div>
   </div>
 
@@ -205,6 +211,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
   </div>
 
+  <!-- Backup history panel -->
+  <div id="backup-panel" style="display:none" class="panel">
+    <div class="panel-header">
+      <span class="panel-title">🕐 Lịch sử sao lưu theo ngày</span>
+      <button class="btn" style="padding:4px 10px;font-size:12px" onclick="toggleBackupPanel()">✕ Đóng</button>
+    </div>
+    <p style="font-size:12px;color:#888;margin-bottom:10px;line-height:1.5">Mỗi lần lưu, hệ thống tự giữ lại 1 bản sao lưu cho ngày hôm đó. Nếu chẳng may dữ liệu bị mất/sai, bạn có thể khôi phục lại đúng bản của 1 ngày bất kỳ bên dưới.</p>
+    <div id="backup-list" class="backup-list"><div class="backup-empty">Đang tải danh sách...</div></div>
+  </div>
+
   <!-- Channel panel -->
   <div id="ch-panel" style="display:none" class="panel">
     <div class="panel-header">
@@ -215,7 +231,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <button class="add-ch-btn" onclick="addChannel()">+ Thêm kênh mới</button>
   </div>
 
-  <!-- View mode bar (shown when viewing others) -->
+  <!-- View mode bar (shown when viewing others via share link) -->
   <div id="view-mode-bar" class="view-mode-bar" style="display:none">
     <span id="view-mode-label">👁 Đang xem dữ liệu của: <b id="view-mode-name"></b></span>
     <button class="btn" onclick="exitViewMode()">✕ Thoát — về dữ liệu của tôi</button>
@@ -237,14 +253,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <script>
-const API = 'https://script.google.com/macros/s/AKfycbwBAQhYmQjoRb-a0UItkCHWcD5TPFp30DVTEZ-dmjYVbuS5z-ytGyu41DtLWBR8WorTzQ/exec';
 const PL={tiktok:'TikTok',facebook:'Facebook',youtube:'YouTube',other:'Khác'};
 const STAT_LABELS=['Ý tưởng','Đã viết kịch bản','Đã quay','Đã đăng'];
 const STAT_CLS=['s0','s1','s2','s3'];
 
 let currentUser='', channels=[], tabs=[];
 let nextChId=1, nextTabId=1, nextItemId=1;
-let activeTabId=null, chPanelOpen=false, viewPanelOpen=false, saveTimer=null;
+let activeTabId=null, chPanelOpen=false, backupPanelOpen=false, saveTimer=null;
 let viewingUser=null; // null = viewing own data
 
 // ── LOGIN ──────────────────────
@@ -334,44 +349,64 @@ function setSyncStatus(s){
   else if(s==='saving'){el.classList.add('sync-saving');el.textContent='⏳ Đang lưu...';}
   else{el.classList.add('sync-err');el.textContent='✗ Lỗi lưu';}
 }
-function userKey(k){ return currentUser+'_'+k; }
 
+// ---------------------------------------------------------------
+// loadData(): TẢI DỮ LIỆU KHI MỞ APP
+//
+// QUY TẮC AN TOÀN QUAN TRỌNG (đã sửa để chống mất dữ liệu):
+// - CHỈ coi là "tài khoản mới" và tạo dữ liệu mặc định khi Firebase
+//   trả về đúng giá trị null (nghĩa là path đó CHƯA TỪNG tồn tại).
+// - Bất kỳ trường hợp bất thường nào khác (mất mạng, lỗi quyền truy
+//   cập, dữ liệu trả về sai định dạng...) đều KHÔNG được tự động ghi
+//   đè lên Firebase — chỉ dùng bản sao lưu cục bộ (localStorage) để
+//   hiển thị tạm và báo lỗi cho người dùng biết.
+// ---------------------------------------------------------------
 async function loadData(){
   let loadFailed=false;
   try{
     const res=await fetch(FB+'/users/'+currentUser+'.json');
+    if(!res.ok){ throw new Error('Máy chủ trả lỗi HTTP '+res.status); }
     const d=await res.json();
-    if(d){
+
+    if(d && d.tabs && d.tabs.length>0){
+      // Dữ liệu hợp lệ — load bình thường
       channels=d.channels||[]; tabs=d.tabs||[];
       nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
       activeTabId=d.activeTabId||null;
-    }
-    if(!d||tabs.length===0){
+    } else if(d===null){
+      // Path CHƯA TỪNG tồn tại -> chắc chắn là tài khoản mới tinh
       channels=[{id:1,name:'TikTok chính',platform:'tiktok'},{id:2,name:'Facebook cá nhân',platform:'facebook'},{id:3,name:'YouTube chính',platform:'youtube'}];
       nextChId=4;
-      const t=new Date();
       tabs=[
         {id:1,name:'Video Text Overlay',items:[{id:101,hook:'',status:0,script:'',chIds:[],open:false}]},
         {id:2,name:'Bài viết',items:[{id:102,hook:'',status:0,script:'',chIds:[],open:false}]},
       ];
       nextTabId=3; nextItemId=200; activeTabId=1;
-      await saveData();
+      await saveData(); // an toàn để lưu — chắc chắn là tài khoản mới
+    } else {
+      // d tồn tại nhưng bất thường (không có tabs / rỗng bất thường)
+      // KHÔNG tự động ghi đè — nhảy sang catch để dùng bản sao lưu cục bộ
+      throw new Error('Dữ liệu máy chủ trả về bất thường, không tự ghi đè');
     }
     if(!activeTabId||!tabs.find(t=>t.id===activeTabId)) activeTabId=tabs[0]?.id||null;
     tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}); });
   }catch(e){
     console.error('Lỗi tải dữ liệu:',e);
     loadFailed=true;
-    // Khôi phục từ localStorage nếu Firebase lỗi
+    // Khôi phục từ localStorage nếu Firebase lỗi — KHÔNG bao giờ tự ý lưu mặc định đè lên máy chủ
     try{
       const backup=localStorage.getItem('cp_backup_'+currentUser);
-      if(backup){ const d=JSON.parse(backup); channels=d.channels||[]; tabs=d.tabs||[]; nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1; activeTabId=d.activeTabId||null; }
+      if(backup){
+        const d=JSON.parse(backup);
+        channels=d.channels||[]; tabs=d.tabs||[]; nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1; activeTabId=d.activeTabId||null;
+        tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}); });
+      }
     }catch(e2){}
   }
   hideLoading();
   if(loadFailed){
     setSyncStatus('err');
-    alert('⚠️ Không tải được dữ liệu từ máy chủ.\n\nCó thể do:\n- Mất kết nối mạng\n- Trình duyệt/tiện ích mở rộng đang chặn kết nối tới Firebase\n- Tường lửa mạng đang chặn\n\nHãy thử: tắt tiện ích chặn quảng cáo/VPN, đổi mạng, hoặc thử trình duyệt khác, rồi tải lại trang (F5).');
+    alert('⚠️ Không tải được dữ liệu mới nhất từ máy chủ.\n\nApp đang tạm hiển thị bản sao lưu gần nhất trên chính máy này (nếu có) để không mất dữ liệu — dữ liệu KHÔNG bị ghi đè lên máy chủ.\n\nHãy kiểm tra lại nội dung, và chỉ tiếp tục thao tác khi mạng đã ổn định trở lại. Có thể do: mất kết nối, tiện ích chặn quảng cáo/VPN, hoặc máy chủ đang gián đoạn tạm thời.');
   } else {
     setSyncStatus('ok');
   }
@@ -383,6 +418,12 @@ async function loadData(){
   renderAll();
 }
 
+// ---------------------------------------------------------------
+// saveData(): LƯU DỮ LIỆU
+// Sau khi lưu chính thành công, tự động ghi thêm 1 bản sao lưu
+// theo ngày vào /backups/{user}/{YYYY-MM-DD}.json — không chặn
+// luồng chính, lỗi thì bỏ qua âm thầm (không ảnh hưởng UX).
+// ---------------------------------------------------------------
 async function saveData(){
   if(isReadOnly()) return;
   setSyncStatus('saving');
@@ -395,59 +436,64 @@ async function saveData(){
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(payload)
     });
-    if(res.ok) setSyncStatus('ok'); else setSyncStatus('err');
+    if(res.ok){
+      setSyncStatus('ok');
+      const today=new Date().toISOString().slice(0,10); // YYYY-MM-DD
+      fetch(FB+'/backups/'+currentUser+'/'+today+'.json',{
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({...payload,_savedAt:new Date().toISOString(),_itemCount:tabs.reduce((s,t)=>s+(t.items?t.items.length:0),0)})
+      }).catch(()=>{});
+    } else {
+      setSyncStatus('err');
+    }
   }catch(e){ console.error(e); setSyncStatus('err'); }
 }
 
+// ---------------------------------------------------------------
+// loadViewOnly(): dùng cho link share (?view=username) — CHỈ ĐỌC,
+// không bao giờ ghi lên Firebase. Đây là bản DUY NHẤT (trước đây
+// file có 1 bản trùng dùng Google Apps Script đã lỗi thời khiến
+// link share không hoạt động — đã bỏ bản đó).
+// ---------------------------------------------------------------
 async function loadViewOnly(slug, displayName){
+  let ok=false;
   try{
-    // Dùng thẳng slug không encode thêm
     const res=await fetch(FB+'/users/'+slug+'.json');
     const d=await res.json();
-    if(!d){
-      hideLoading();
-      document.getElementById('main-app').style.display='block';
-      document.getElementById('view-mode-bar').style.display='flex';
-      document.getElementById('view-mode-bar').querySelector('span').innerHTML='⚠️ Không tìm thấy dữ liệu của <b>'+displayName+'</b>';
-      renderAll();
-      return;
+    if(d && d.tabs){
+      channels=d.channels||[]; tabs=d.tabs||[];
+      nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
+      activeTabId=d.activeTabId||tabs[0]?.id||null;
+      if(!activeTabId||!tabs.find(t=>t.id===activeTabId)) activeTabId=tabs[0]?.id||null;
+      tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}); });
+      ok=true;
+    } else {
+      channels=[]; tabs=[];
     }
-    channels=d.channels||[]; tabs=d.tabs||[];
-    nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
-    activeTabId=d.activeTabId||tabs[0]?.id||null;
-    if(!activeTabId||!tabs.find(t=>t.id===activeTabId)) activeTabId=tabs[0]?.id||null;
-    tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}); });
-  }catch(e){ console.error(e); }
+  }catch(e){ console.error(e); channels=[]; tabs=[]; }
+
   hideLoading();
+  document.getElementById('main-app').style.display='block';
   document.getElementById('view-mode-bar').style.display='flex';
-  document.getElementById('view-mode-name').textContent=displayName;
   document.getElementById('user-chip').style.display='none';
-  const exitBtn=document.getElementById('view-mode-bar').querySelector('button');
-  if(exitBtn) exitBtn.style.display='none';
+  if(!ok){
+    document.getElementById('view-mode-bar').querySelector('span').innerHTML='⚠️ Không tìm thấy dữ liệu của <b>'+displayName+'</b>';
+  } else {
+    document.getElementById('view-mode-name').textContent=displayName;
+  }
   renderAll();
 }
 
 async function exitViewMode(){
   viewingUser=null;
   document.getElementById('view-mode-bar').style.display='none';
-  document.getElementById('view-btn').style.display='';
   document.getElementById('user-chip').style.display='';
-  document.getElementById('view-input').value='';
   showLoading();
   await loadData();
 }
 
-async function doViewUser(){
-  const val=document.getElementById('view-input').value.trim();
-  if(!val) return;
-  const slug=slugify(val);
-  if(slug===currentUser){ alert('Đó là tài khoản của bạn!'); return; }
-  document.getElementById('view-panel').style.display='none';
-  viewPanelOpen=false;
-  viewingUser=slug;
-  showLoading();
-  await loadViewOnly(slug, val);
-}
+function isReadOnly(){ return viewingUser!==null; }
 
 function scheduleSave(){
   // Lưu tạm localStorage ngay lập tức phòng mất dữ liệu
@@ -600,7 +646,6 @@ function renderTabContent(){
 
     // Script
     const hr=document.createElement('hr'); hr.style.cssText='border:none;border-top:1px solid #f0f0ee;margin:8px 0';
-    const scl=document.createElement('div'); scl.className='field-label'; scl.textContent='';
     const ta=document.createElement('textarea'); ta.className='script-area'; ta.placeholder='Viết kịch bản hoặc nội dung tại đây...'; ta.value=item.script;
     ta.addEventListener('input',function(){ item.script=this.value; scheduleSave(); });
     const scHeader=document.createElement('div'); scHeader.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:5px';
@@ -642,82 +687,52 @@ function renderStats(){
     '<span class="stat-chip">Đã đăng: <span class="stat-num">'+s3+'</span></span>';
 }
 
-// ── VIEW MODE ─────────────────
-function toggleViewPanel(){
-  viewPanelOpen=!viewPanelOpen;
-  document.getElementById('view-panel').style.display=viewPanelOpen?'block':'none';
-  if(viewPanelOpen) setTimeout(()=>document.getElementById('view-input').focus(),50);
+// ── BACKUP THEO NGÀY ─────────────
+function toggleBackupPanel(){
+  backupPanelOpen=!backupPanelOpen;
+  document.getElementById('backup-panel').style.display=backupPanelOpen?'block':'none';
+  if(backupPanelOpen) loadBackupList();
 }
 
-async function doViewUser(){
-  const val=document.getElementById('view-input').value.trim();
-  if(!val) return;
-  const slug=slugify(val);
-  if(slug===currentUser){ alert('Đó là tài khoản của bạn!'); return; }
-  document.getElementById('view-panel').style.display='none';
-  viewPanelOpen=false;
-  showLoading();
+async function loadBackupList(){
+  const listEl=document.getElementById('backup-list');
+  listEl.innerHTML='<div class="backup-empty">Đang tải danh sách...</div>';
   try{
-    const json=await fetchJsonp(API+'?key='+encodeURIComponent(slug+'_all'));
-    if(!json.value){ hideLoading(); alert('Không tìm thấy tài khoản "'+val+'". Kiểm tra lại tên nhé!'); return; }
-    const d=JSON.parse(json.value);
-    // Load their data into view
-    channels=d.channels||[]; tabs=d.tabs||[]; nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
-    activeTabId=d.activeTabId||tabs[0]?.id||null;
-    tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}); });
-    viewingUser=slug;
-    document.getElementById('view-mode-bar').style.display='flex';
-    document.getElementById('view-mode-name').textContent=val;
-    document.getElementById('view-btn').style.display='none';
-  }catch(e){ hideLoading(); alert('Lỗi khi tải dữ liệu. Thử lại nhé!'); return; }
-  hideLoading(); setSyncStatus('ok'); renderAll();
+    const res=await fetch(FB+'/backups/'+currentUser+'.json');
+    const d=await res.json();
+    if(!d){ listEl.innerHTML='<div class="backup-empty">Chưa có bản sao lưu nào.</div>'; return; }
+    const dates=Object.keys(d).sort().reverse(); // mới nhất trước
+    listEl.innerHTML='';
+    dates.forEach(date=>{
+      const entry=d[date];
+      const itemCount=entry._itemCount!=null?entry._itemCount:(entry.tabs?entry.tabs.reduce((s,t)=>s+(t.items?t.items.length:0),0):0);
+      const row=document.createElement('div'); row.className='backup-row';
+      const info=document.createElement('div');
+      const dEl=document.createElement('div'); dEl.className='backup-date'; dEl.textContent=date;
+      const mEl=document.createElement('div'); mEl.className='backup-meta'; mEl.textContent=itemCount+' bài · '+(entry.tabs?entry.tabs.length:0)+' tab';
+      info.appendChild(dEl); info.appendChild(mEl);
+      const btn=document.createElement('button'); btn.className='btn btn-primary'; btn.style.cssText='font-size:12px;padding:5px 12px'; btn.textContent='Khôi phục';
+      btn.addEventListener('click',()=>restoreFromBackup(date,entry));
+      row.appendChild(info); row.appendChild(btn);
+      listEl.appendChild(row);
+    });
+  }catch(e){
+    console.error(e);
+    listEl.innerHTML='<div class="backup-empty">Không tải được danh sách sao lưu. Kiểm tra kết nối mạng.</div>';
+  }
 }
 
-async function exitViewMode(){
-  viewingUser=null;
-  document.getElementById('view-mode-bar').style.display='none';
-  document.getElementById('view-btn').style.display='';
-  document.getElementById('view-input').value='';
-  showLoading();
-  await loadData();
-}
-
-function isReadOnly(){ return viewingUser!==null; }
-
-async function loadViewOnly(slug, displayName){
-  try{
-    const vkey=slug+'_all';
-    const nRes2=await fetchJsonp(API+'?key='+encodeURIComponent(vkey+'__n'));
-    let vraw=null;
-    if(nRes2.value && parseInt(nRes2.value)>0){
-      const n=parseInt(nRes2.value); let parts=[];
-      for(let i=0;i<n;i++){ const r=await fetchJsonp(API+'?key='+encodeURIComponent(vkey+'__'+i)); parts.push(r.value||''); }
-      vraw=parts.join('');
-    } else {
-      const fb=await fetchJsonp(API+'?key='+encodeURIComponent(vkey));
-      if(fb.value) vraw=fb.value;
-    }
-    if(!vraw){ hideLoading(); document.getElementById('main-app').style.display='block'; document.getElementById('view-mode-bar').style.display='flex'; document.getElementById('view-mode-name').textContent=displayName; document.getElementById('view-mode-bar').querySelector('span').innerHTML='⚠️ Không tìm thấy dữ liệu của <b>'+displayName+'</b>'; return; }
-    const d=JSON.parse(vraw);
-    channels=d.channels||[]; tabs=d.tabs||[];
-    nextChId=d.nextChId||1; nextTabId=d.nextTabId||1; nextItemId=d.nextItemId||1;
-    activeTabId=d.activeTabId||tabs[0]?.id||null;
-    tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}); });
-  }catch(e){ console.error(e); }
-  hideLoading();
-  // Show view mode bar, hide edit buttons
-  document.getElementById('view-mode-bar').style.display='flex';
-  document.getElementById('view-mode-name').textContent=displayName;
-  document.getElementById('view-btn').style.display='none';
-  document.getElementById('user-chip').style.display='none';
-  // Hide "Thoát" button — they came via link, just show data
-  const exitBtn=document.getElementById('view-mode-bar').querySelector('button');
-  if(exitBtn) exitBtn.style.display='none';
-  // Add share URL display
-  const shareUrl=window.location.href;
-  const shareDiv=document.createElement('div');
-  shareDiv.style.cssText='font-size:12px;color:#185FA5';
-  shareDiv.textContent='🔗 '+shareUrl;
+async function restoreFromBackup(date,entry){
+  const itemCount=entry._itemCount!=null?entry._itemCount:(entry.tabs?entry.tabs.reduce((s,t)=>s+(t.items?t.items.length:0),0):0);
+  if(!confirm('Khôi phục dữ liệu về đúng bản ngày '+date+' ('+itemCount+' bài)?\n\nDữ liệu hiện tại sẽ bị THAY THẾ bằng bản này.')) return;
+  channels=entry.channels||[]; tabs=entry.tabs||[];
+  nextChId=entry.nextChId||1; nextTabId=entry.nextTabId||1; nextItemId=entry.nextItemId||1;
+  activeTabId=entry.activeTabId||tabs[0]?.id||null;
+  tabs.forEach(t=>{ if(!t.items) t.items=[]; t.items.forEach(i=>{if(!i.script)i.script='';if(!i.chIds)i.chIds=[];}); });
+  await saveData();
+  document.getElementById('backup-panel').style.display='none';
+  backupPanelOpen=false;
+  alert('Đã khôi phục xong bản ngày '+date+'!');
   renderAll();
 }
 
@@ -742,7 +757,7 @@ async function restoreOldData(){
   try{
     // Key cũ chính xác trên Firebase
     const oldKey='huyền_hiếu_thương';
-    const res=await fetch('https://content-plan-e204f-default-rtdb.asia-southeast1.firebasedatabase.app/users/'+encodeURIComponent(oldKey)+'.json');
+    const res=await fetch(FB+'/users/'+encodeURIComponent(oldKey)+'.json');
     const found=await res.json();
     if(!found||!found.tabs||found.tabs.length===0){ alert('Không tìm thấy dữ liệu cũ!'); setSyncStatus('ok'); return; }
     channels=found.channels||[]; tabs=found.tabs||[];
